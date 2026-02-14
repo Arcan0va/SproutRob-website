@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robob — Your ESP32 Desk Companion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=DM+Sans:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── TOKENS ──────────────────────────────────────────────────────── */
+    :root {
+      --bg:       #08090b;
+      --bg2:      #0e1117;
+      --bg3:      #161b22;
+      --border:   rgba(255,255,255,0.07);
+      --green:    #39ff8f;
+      --green2:   #1aff6e;
+      --yellow:   #ffe566;
+      --pink:     #ff6eb4;
+      --blue:     #6eb4ff;
+      --text:     #e6edf3;
+      --muted:    #7d8590;
+      --font-px:  'VT323', monospace;
+      --font-mono:'Space Mono', monospace;
+      --font-body:'DM Sans', sans-serif;
+    }
+
+    /* ─── RESET ───────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+
+    /* ─── SCANLINE OVERLAY ────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── NOISE TEXTURE ───────────────────────────────────────────────── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9998;
+      opacity: 0.4;
+    }
+
+    /* ─── NAV ─────────────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(20px, 5vw, 80px);
+      height: 64px;
+      background: rgba(8,9,11,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      font-family: var(--font-px);
+      font-size: 28px;
+      color: var(--green);
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-logo .dot {
+      width: 8px; height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: blink 1.4s step-end infinite;
+    }
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--green); }
+    .nav-cta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 18px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      border-radius: 6px;
+      transition: background .2s, color .2s;
+    }
+    .nav-cta:hover { background: var(--green); color: var(--bg); }
+
+    /* ─── HERO ────────────────────────────────────────────────────────── */
+    #hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      padding: 80px clamp(20px, 5vw, 80px) 40px;
+      gap: 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Grid background */
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 40%, transparent 100%);
+    }
+    /* Glow */
+    #hero::after {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(57,255,143,0.06) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .hero-text { position: relative; z-index: 1; }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--green);
+      background: rgba(57,255,143,0.08);
+      border: 1px solid rgba(57,255,143,0.2);
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-bottom: 28px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .hero-badge::before { content: '●'; font-size: 8px; animation: blink 1.4s step-end infinite; }
+
+    h1 {
+      font-family: var(--font-px);
+      font-size: clamp(56px, 8vw, 100px);
+      line-height: 0.95;
+      color: var(--text);
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }
+    h1 span { color: var(--green); }
+
+    .hero-sub {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 480px;
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+    .hero-sub strong { color: var(--text); font-weight: 500; }
+
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 14px 28px;
+      background: var(--green);
+      color: var(--bg);
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      letter-spacing: 0.5px;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(57,255,143,0.3);
+    }
+    .btn-secondary {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 14px 28px;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-secondary:hover { border-color: var(--green); color: var(--green); }
+
+    /* ─── ROBOB PIXEL ART CANVAS ──────────────────────────────────────── */
+    .hero-visual {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .device-mockup {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+    .oled-screen {
+      width: 256px;
+      height: 128px;
+      background: #000;
+      border: 3px solid #2a2a2a;
+      border-radius: 8px;
+      box-shadow:
+        0 0 0 6px #1a1a1a,
+        0 0 0 7px #2a2a2a,
+        0 0 40px rgba(57,255,143,0.15),
+        inset 0 0 20px rgba(0,0,0,0.5);
+      overflow: hidden;
+      position: relative;
+    }
+    .oled-screen canvas { display: block; }
+
+    /* Écran tabs */
+    .screen-tabs {
+      display: flex;
+      gap: 8px;
+    }
+    .screen-tab {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .screen-tab.active {
+      background: rgba(57,255,143,0.1);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    /* ESP32 board representation */
+    .esp-board {
+      width: 180px;
+      height: 60px;
+      background: #0d2318;
+      border: 2px solid #1a4a2e;
+      border-radius: 6px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .esp-board::before, .esp-board::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 40px;
+      background: repeating-linear-gradient(180deg, #2a6a3a 0px, #2a6a3a 3px, transparent 3px, transparent 6px);
+    }
+    .esp-board::before { left: -10px; }
+    .esp-board::after  { right: -10px; }
+    .esp-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: #2a8a4a;
+      letter-spacing: 2px;
+    }
+
+    /* ─── STATS BAR ───────────────────────────────────────────────────── */
+    .stats-bar {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 32px clamp(20px, 5vw, 80px);
+      display: flex;
+      justify-content: space-around;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+    .stat-item { text-align: center; }
+    .stat-num {
+      font-family: var(--font-px);
+      font-size: 52px;
+      color: var(--green);
+      line-height: 1;
+    }
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-top: 4px;
+    }
+
+    /* ─── SECTIONS ────────────────────────────────────────────────────── */
+    section {
+      padding: 100px clamp(20px, 5vw, 80px);
+    }
+    .section-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-tag::before {
+      content: '';
+      width: 24px; height: 1px;
+      background: var(--green);
+    }
+    h2 {
+      font-family: var(--font-px);
+      font-size: clamp(36px, 5vw, 64px);
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 64px;
+      line-height: 1.7;
+    }
+
+    /* ─── BUILD GUIDE ─────────────────────────────────────────────────── */
+    #build { background: var(--bg); }
+    .build-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .build-card {
+      background: var(--bg2);
+      padding: 36px 32px;
+      position: relative;
+      overflow: hidden;
+      transition: background .2s;
+    }
+    .build-card:hover { background: var(--bg3); }
+    .build-card::before {
+      content: attr(data-step);
+      position: absolute;
+      top: -10px; right: 16px;
+      font-family: var(--font-px);
+      font-size: 96px;
+      color: rgba(255,255,255,0.03);
+      line-height: 1;
+      pointer-events: none;
+    }
+    .build-icon {
+      font-size: 32px;
+      margin-bottom: 20px;
+    }
+    .build-card h3 {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .build-card p {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .build-card .tag {
+      display: inline-block;
+      margin-top: 16px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: rgba(57,255,143,0.08);
+      color: var(--green);
+      border: 1px solid rgba(57,255,143,0.15);
+    }
+
+    /* Parts list */
+    .parts-list {
+      margin-top: 64px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .parts-header {
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 40px;
+    }
+    .part-row {
+      padding: 18px 32px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 40px;
+      align-items: center;
+      transition: background .15s;
+    }
+    .part-row:last-child { border-bottom: none; }
+    .part-row:hover { background: var(--bg3); }
+    .part-name {
+      font-size: 15px;
+      font-weight: 500;
+    }
+    .part-name span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      margin-top: 2px;
+    }
+    .part-price {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--yellow);
+      white-space: nowrap;
+    }
+    .part-req {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .part-req.required {
+      background: rgba(57,255,143,0.08);
+      color: var(--green);
+      border: 1px solid rgba(57,255,143,0.15);
+    }
+    .part-req.optional {
+      background: rgba(255,229,102,0.08);
+      color: var(--yellow);
+      border: 1px solid rgba(255,229,102,0.15);
+    }
+
+    /* ─── DOWNLOAD ────────────────────────────────────────────────────── */
+    #download {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .dl-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .dl-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      transition: border-color .2s, transform .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .dl-card:hover {
+      border-color: var(--green);
+      transform: translateY(-4px);
+    }
+    .dl-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at top left, rgba(57,255,143,0.04), transparent 60%);
+      pointer-events: none;
+    }
+    .dl-card-icon { font-size: 36px; }
+    .dl-card h3 {
+      font-family: var(--font-px);
+      font-size: 32px;
+      color: var(--text);
+    }
+    .dl-card p {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      flex: 1;
+    }
+    .dl-version {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dl-version::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+    }
+
+    /* ─── CHANGELOG ───────────────────────────────────────────────────── */
+    #changelog { background: var(--bg); }
+    .changelog-list {
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .changelog-item {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 32px;
+      padding: 32px 0;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .changelog-item::before {
+      content: '';
+      position: absolute;
+      left: 119px;
+      top: 0; bottom: 0;
+      width: 1px;
+      background: var(--border);
+    }
+    .changelog-item::after {
+      content: '';
+      position: absolute;
+      left: 113px;
+      top: 40px;
+      width: 13px; height: 13px;
+      background: var(--bg);
+      border: 2px solid var(--green);
+      border-radius: 50%;
+    }
+    .cl-version {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--green);
+      padding-top: 4px;
+    }
+    .cl-date {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .cl-content h4 {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    .cl-content ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cl-content li {
+      font-size: 14px;
+      color: var(--muted);
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .cl-content li::before {
+      content: '→';
+      color: var(--green);
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+    }
+    .cl-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .cl-badge.new { background: rgba(57,255,143,0.15); color: var(--green); }
+    .cl-badge.fix { background: rgba(255,110,180,0.15); color: var(--pink); }
+    .cl-badge.imp { background: rgba(110,180,255,0.15); color: var(--blue); }
+
+    /* ─── FAQ ─────────────────────────────────────────────────────────── */
+    #faq {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+    }
+    .faq-list {
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .faq-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .faq-q {
+      padding: 20px 24px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      transition: color .2s;
+      user-select: none;
+    }
+    .faq-q:hover { color: var(--green); }
+    .faq-q .chevron {
+      color: var(--muted);
+      font-size: 18px;
+      transition: transform .25s;
+      flex-shrink: 0;
+    }
+    .faq-item.open .faq-q { color: var(--green); }
+    .faq-item.open .chevron { transform: rotate(45deg); }
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height .3s ease, padding .3s ease;
+    }
+    .faq-item.open .faq-a { max-height: 300px; }
+    .faq-a-inner {
+      padding: 0 24px 20px;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.8;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+    }
+    .faq-a-inner a { color: var(--green); }
+
+    /* ─── COMMUNITY / CONTACT ─────────────────────────────────────────── */
+    #community { background: var(--bg); }
+    .community-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+    .community-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: border-color .2s, transform .15s;
+    }
+    .community-card:hover {
+      border-color: var(--green);
+      transform: translateY(-3px);
+    }
+    .community-card-icon { font-size: 36px; }
+    .community-card h3 {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .community-card p {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      flex: 1;
+    }
+    .community-card a {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--green);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .community-card a::after { content: '→'; }
+    .community-card a:hover { text-decoration: underline; }
+
+    /* ─── FOOTER ──────────────────────────────────────────────────────── */
+    footer {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      padding: 48px clamp(20px, 5vw, 80px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+    .footer-logo {
+      font-family: var(--font-px);
+      font-size: 24px;
+      color: var(--green);
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+    .footer-links a {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      transition: color .2s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .footer-links a:hover { color: var(--green); }
+    .footer-copy {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ─── ANIMATIONS ──────────────────────────────────────────────────── */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-8px); }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes screenGlow {
+      0%, 100% { box-shadow: 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a, 0 0 30px rgba(57,255,143,0.1), inset 0 0 20px rgba(0,0,0,0.5); }
+      50%       { box-shadow: 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a, 0 0 50px rgba(57,255,143,0.25), inset 0 0 20px rgba(0,0,0,0.5); }
+    }
+
+    .hero-text > * {
+      animation: fadeUp .6s ease both;
+    }
+    .hero-text > *:nth-child(1) { animation-delay: .1s; }
+    .hero-text > *:nth-child(2) { animation-delay: .2s; }
+    .hero-text > *:nth-child(3) { animation-delay: .3s; }
+    .hero-text > *:nth-child(4) { animation-delay: .4s; }
+    .hero-text > *:nth-child(5) { animation-delay: .5s; }
+
+    .device-mockup { animation: float 4s ease-in-out infinite; }
+    .oled-screen   { animation: screenGlow 3s ease-in-out infinite; }
+
+    /* ─── RESPONSIVE ──────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #hero {
+        grid-template-columns: 1fr;
+        text-align: center;
+        padding-top: 100px;
+      }
+      .hero-buttons { justify-content: center; }
+      .hero-sub { margin: 0 auto 40px; }
+      .hero-badge { margin: 0 auto 28px; }
+      nav .nav-links { display: none; }
+      .changelog-item { grid-template-columns: 1fr; gap: 12px; }
+      .changelog-item::before, .changelog-item::after { display: none; }
+      .parts-header, .part-row { grid-template-columns: 1fr 1fr; }
+      .part-req { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── NAV ──────────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-logo">
+    <span class="dot"></span>
+    ROBOB
+  </div>
+  <ul class="nav-links">
+    <li><a href="#build">Build</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="#changelog">Changelog</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li><a href="#community">Community</a></li>
+  </ul>
+  <a href="#download" class="nav-cta">Get Robob</a>
+</nav>
+
+<!-- ─── HERO ─────────────────────────────────────────────────────────────── -->
+<section id="hero">
+  <div class="hero-text">
+    <div class="hero-badge">Open Source · ESP32 · Self-Build</div>
+    <h1>Your desk<br/>needs a<br/><span>buddy.</span></h1>
+    <p class="hero-sub">
+      <strong>Robob</strong> is a tiny ESP32-powered companion that lives on your desk.
+      It tells you the time, weather, and reminds you to drink water —
+      all on a glowing OLED screen. <strong>You build it yourself.</strong>
+    </p>
+    <div class="hero-buttons">
+      <a href="#build" class="btn-primary">Start Building →</a>
+      <a href="https://github.com" class="btn-secondary">GitHub ↗</a>
+    </div>
+  </div>
+
+  <div class="hero-visual">
+    <div class="device-mockup">
+      <div class="oled-screen">
+        <canvas id="oledCanvas" width="256" height="128"></canvas>
+      </div>
+      <div class="screen-tabs">
+        <button class="screen-tab active" onclick="setScreen('clock')">Clock</button>
+        <button class="screen-tab" onclick="setScreen('weather')">Weather</button>
+        <button class="screen-tab" onclick="setScreen('buddy')">Buddy</button>
+      </div>
+      <div class="esp-board">
+        <span class="esp-label">ESP32 WROOM</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── STATS ─────────────────────────────────────────────────────────────── -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <div class="stat-num">~10€</div>
+    <div class="stat-label">Total Cost</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">3</div>
+    <div class="stat-label">Screens</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">30min</div>
+    <div class="stat-label">Build Time</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">0</div>
+    <div class="stat-label">Soldering Needed</div>
+  </div>
+</div>
+
+<!-- ─── BUILD GUIDE ───────────────────────────────────────────────────────── -->
+<section id="build">
+  <div class="section-tag">How to build</div>
+  <h2>4 steps to<br/>your Robob</h2>
+  <p class="section-sub">No soldering, no experience needed. Just wires, patience, and a breadboard.</p>
+
+  <div class="build-grid">
+    <div class="build-card" data-step="01">
+      <div class="build-icon">🛒</div>
+      <h3>Get the parts</h3>
+      <p>An ESP32 WROOM dev board and a 0.96" I2C OLED display. That's literally it. Links below.</p>
+      <span class="tag">~10€ total</span>
+    </div>
+    <div class="build-card" data-step="02">
+      <div class="build-icon">🔌</div>
+      <h3>Wire it up</h3>
+      <p>Connect SCL → pin 22, SDA → pin 21, VCC → 3.3V, GND → GND. Four wires on a breadboard.</p>
+      <span class="tag">No soldering</span>
+    </div>
+    <div class="build-card" data-step="03">
+      <div class="build-icon">⚡</div>
+      <h3>Flash the firmware</h3>
+      <p>Download the latest firmware, open Arduino IDE, plug in USB, flash. Done in under 5 minutes.</p>
+      <span class="tag">Arduino IDE</span>
+    </div>
+    <div class="build-card" data-step="04">
+      <div class="build-icon">📱</div>
+      <h3>Setup via app</h3>
+      <p>Open the Robob Android app, connect via Bluetooth, enter your WiFi and OpenWeatherMap key. Robob goes live.</p>
+      <span class="tag">Android app</span>
+    </div>
+  </div>
+
+  <!-- Parts list -->
+  <div class="parts-list">
+    <div class="parts-header">
+      <span>Component</span>
+      <span>Price</span>
+      <span>Status</span>
+    </div>
+    <div class="part-row">
+      <div class="part-name">
+        ESP32 WROOM Dev Board
+        <span>38-pin, USB-C or micro-USB</span>
+      </div>
+      <div class="part-price">~6€</div>
+      <div class="part-req required">Required</div>
+    </div>
+    <div class="part-row">
+      <div class="part-name">
+        0.96" I2C OLED Display
+        <span>128×64 px, SSD1306</span>
+      </div>
+      <div class="part-price">~3€</div>
+      <div class="part-req required">Required</div>
+    </div>
+    <div class="part-row">
+      <div class="part-name">
+        Breadboard + Jumper Wires
+        <span>Any size works</span>
+      </div>
+      <div class="part-price">~2€</div>
+      <div class="part-req required">Required</div>
+    </div>
+    <div class="part-row">
+      <div class="part-name">
+        100µF Capacitor
+        <span>Between GND and 3.3V on screen</span>
+      </div>
+      <div class="part-price">&lt;1€</div>
+      <div class="part-req optional">Optional</div>
+    </div>
+    <div class="part-row">
+      <div class="part-name">
+        3D Printed Case
+        <span>STL file available for free</span>
+      </div>
+      <div class="part-price">Free</div>
+      <div class="part-req optional">Optional</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── DOWNLOAD ─────────────────────────────────────────────────────────── -->
+<section id="download">
+  <div class="section-tag">Downloads</div>
+  <h2>Get everything<br/>for free.</h2>
+  <p class="section-sub">All open source, all free, forever. Flash, install, enjoy.</p>
+
+  <div class="dl-grid">
+    <div class="dl-card">
+      <div class="dl-card-icon">⚡</div>
+      <h3>Firmware</h3>
+      <p>The ESP32 firmware. Handles NTP time sync, OpenWeatherMap weather, OLED rendering and Bluetooth config.</p>
+      <div class="dl-version">v0.1.0-beta · Arduino C++</div>
+      <a href="#" class="btn-primary">Download .ino</a>
+    </div>
+    <div class="dl-card">
+      <div class="dl-card-icon">📱</div>
+      <h3>Android App</h3>
+      <p>Config app to pair Robob via Bluetooth, send your WiFi credentials, API key and location in one tap.</p>
+      <div class="dl-version">v0.1.0-beta · Android 8+</div>
+      <a href="#" class="btn-primary">Download APK</a>
+    </div>
+    <div class="dl-card">
+      <div class="dl-card-icon">🖨️</div>
+      <h3>3D Case</h3>
+      <p>Optional printable enclosure for your Robob. Designed for standard FDM printers, no supports needed.</p>
+      <div class="dl-version">v0.1.0 · STL / 3MF</div>
+      <a href="#" class="btn-primary">Download STL</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CHANGELOG ────────────────────────────────────────────────────────── -->
+<section id="changelog">
+  <div class="section-tag">Changelog</div>
+  <h2>What's new</h2>
+  <p class="section-sub">Every update, every fix. Always open.</p>
+
+  <div class="changelog-list">
+    <div class="changelog-item">
+      <div>
+        <div class="cl-version">v0.1.0</div>
+        <div class="cl-date">Feb 2026</div>
+      </div>
+      <div class="cl-content">
+        <h4>Initial release 🎉</h4>
+        <ul>
+          <li><span class="cl-badge new">NEW</span>Clock screen with NTP sync</li>
+          <li><span class="cl-badge new">NEW</span>Weather screen via OpenWeatherMap</li>
+          <li><span class="cl-badge new">NEW</span>Buddy screen with idle animation</li>
+          <li><span class="cl-badge new">NEW</span>Bluetooth config via Android app</li>
+          <li><span class="cl-badge new">NEW</span>GPS-based location from phone</li>
+          <li><span class="cl-badge new">NEW</span>10s screen rotation</li>
+        </ul>
+      </div>
+    </div>
+    <div class="changelog-item">
+      <div>
+        <div class="cl-version">v0.2.0</div>
+        <div class="cl-date">Coming soon</div>
+      </div>
+      <div class="cl-content">
+        <h4>Next up 🔜</h4>
+        <ul>
+          <li><span class="cl-badge new">NEW</span>Pomodoro timer screen</li>
+          <li><span class="cl-badge new">NEW</span>Hydration reminders</li>
+          <li><span class="cl-badge new">NEW</span>Custom stopwatch</li>
+          <li><span class="cl-badge imp">IMP</span>Better weather icons on OLED</li>
+          <li><span class="cl-badge imp">IMP</span>Smoother buddy animations</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FAQ ──────────────────────────────────────────────────────────────── -->
+<section id="faq">
+  <div class="section-tag">FAQ</div>
+  <h2>Got questions?</h2>
+  <p class="section-sub">The most common ones, answered.</p>
+
+  <div class="faq-list">
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">
+        Do I need to know how to code?
+        <span class="chevron">+</span>
+      </div>
+      <div class="faq-a">
+        <div class="faq-a-inner">
+          Nope. The firmware is pre-compiled and flashed via Arduino IDE with one click. The app handles all the config. Zero coding required.
+        </div>
+      </div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">
+        Where do I get a free OpenWeatherMap API key?
+        <span class="chevron">+</span>
+      </div>
+      <div class="faq-a">
+        <div class="faq-a-inner">
+          Create a free account at <a href="https://openweathermap.org" target="_blank">openweathermap.org</a>. The free tier gives you 1,000 calls/day, way more than Robob needs (it checks every 10 minutes).
+        </div>
+      </div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">
+        Is iOS supported for the app?
+        <span class="chevron">+</span>
+      </div>
+      <div class="faq-a">
+        <div class="faq-a-inner">
+          Not yet — Android only for now. iOS is on the roadmap. If you want to help port it, join the Discord!
+        </div>
+      </div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">
+        My ESP32 doesn't show up in Arduino IDE. What do I do?
+        <span class="chevron">+</span>
+      </div>
+      <div class="faq-a">
+        <div class="faq-a-inner">
+          You need to install the CP210x or CH340 USB driver depending on your board. Check the full troubleshooting guide in the Discord #help channel.
+        </div>
+      </div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q" onclick="toggleFaq(this)">
+        Can I customize the screens or add new ones?
+        <span class="chevron">+</span>
+      </div>
+      <div class="faq-a">
+        <div class="faq-a-inner">
+          Yes! The firmware is fully open source. Each screen is a separate module. Fork the repo, add your screen, and send a PR — contributions welcome.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── COMMUNITY ────────────────────────────────────────────────────────── -->
+<section id="community">
+  <div class="section-tag">Community & Contact</div>
+  <h2>Let's build<br/>together.</h2>
+  <p class="section-sub">Questions, builds, ideas — all welcome.</p>
+
+  <div class="community-grid">
+    <div class="community-card">
+      <div class="community-card-icon">💬</div>
+      <h3>Discord</h3>
+      <p>The main hub. Ask questions, share your build, get help, suggest features, and hang out with other Robob makers.</p>
+      <a href="#">Join the server</a>
+    </div>
+    <div class="community-card">
+      <div class="community-card-icon">🐙</div>
+      <h3>GitHub</h3>
+      <p>All source code lives here — firmware, app, and site. Open issues, submit PRs, star the repo if you like it!</p>
+      <a href="#">View on GitHub</a>
+    </div>
+    <div class="community-card">
+      <div class="community-card-icon">✉️</div>
+      <h3>Contact</h3>
+      <p>Got a specific question, a collab idea, or found a serious bug? Drop a message and we'll get back to you.</p>
+      <a href="mailto:hello@robob.dev">hello@robob.dev</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-logo">ROBOB</div>
+  <ul class="footer-links">
+    <li><a href="#build">Build</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://github.com">GitHub</a></li>
+    <li><a href="#community">Discord</a></li>
+  </ul>
+  <div class="footer-copy">Open source · MIT License · Made with ❤️</div>
+</footer>
+
+<!-- ─── SCRIPTS ───────────────────────────────────────────────────────────── -->
+<script>
+// ── OLED Canvas Renderer ──────────────────────────────────────────────────
+const canvas  = document.getElementById('oledCanvas');
+const ctx     = canvas.getContext('2d');
+let   currentScreen = 'clock';
+let   animFrame     = 0;
+let   screenTimer   = null;
+
+// Couleur pixel OLED (vert phosphore)
+const OFF = '#000000';
+const ON  = '#39ff8f';
+const DIM = '#1a7a45';
+
+function clearOled() {
+  ctx.fillStyle = OFF;
+  ctx.fillRect(0, 0, 256, 128);
+}
+
+function px(x, y, c = ON) {
+  ctx.fillStyle = c;
+  ctx.fillRect(x * 2, y * 2, 2, 2);
+}
+
+function text(str, x, y, scale = 1, color = ON) {
+  ctx.fillStyle = color;
+  ctx.font = `bold ${7 * scale}px 'Space Mono', monospace`;
+  ctx.fillText(str, x * 2, y * 2 + 6 * scale);
+}
+
+function bigText(str, x, y) {
+  ctx.fillStyle = ON;
+  ctx.font = `bold 22px 'VT323', monospace`;
+  ctx.fillText(str, x * 2, y * 2 + 16);
+}
+
+function line(x1, y1, x2, y2, c = ON) {
+  ctx.strokeStyle = c;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1 * 2, y1 * 2);
+  ctx.lineTo(x2 * 2, y2 * 2);
+  ctx.stroke();
+}
+
+function rect(x, y, w, h, c = ON, fill = false) {
+  if (fill) { ctx.fillStyle = c; ctx.fillRect(x*2, y*2, w*2, h*2); }
+  else { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.strokeRect(x*2, y*2, w*2, h*2); }
+}
+
+// ── Screen : Clock ────────────────────────────────────────────────────────
+function drawClock() {
+  clearOled();
+  const now = new Date();
+  const h   = String(now.getHours()).padStart(2, '0');
+  const m   = String(now.getMinutes()).padStart(2, '0');
+  const s   = String(now.getSeconds()).padStart(2, '0');
+  const d   = now.toLocaleDateString('en-GB', { weekday:'short', day:'2-digit', month:'short' });
+
+  // Big time
+  ctx.fillStyle = ON;
+  ctx.font = 'bold 42px VT323, monospace';
+  const colon = animFrame % 60 < 30 ? ':' : ' ';
+  ctx.fillText(`${h}${colon}${m}`, 18, 60);
+
+  // Seconds
+  ctx.fillStyle = DIM;
+  ctx.font = 'bold 18px VT323, monospace';
+  ctx.fillText(`:${s}`, 174, 60);
+
+  // Date
+  ctx.fillStyle = DIM;
+  ctx.font = '10px Space Mono, monospace';
+  ctx.fillText(d.toUpperCase(), 36, 80);
+
+  // Progress bar (seconds)
+  const prog = now.getSeconds() / 60;
+  rect(10, 88, 108, 4, DIM);
+  rect(10, 88, Math.floor(108 * prog), 4, ON, true);
+}
+
+// ── Screen : Weather ──────────────────────────────────────────────────────
+function drawWeather() {
+  clearOled();
+
+  // Icon (sun)
+  const cx = 24, cy = 36;
+  // Rays
+  const rays = [[0,-10],[7,-7],[10,0],[7,7],[0,10],[-7,7],[-10,0],[-7,-7]];
+  ctx.strokeStyle = ON; ctx.lineWidth = 2;
+  rays.forEach(([dx, dy]) => {
+    ctx.beginPath();
+    ctx.moveTo((cx + dx*0.6)*2, (cy + dy*0.6)*2);
+    ctx.lineTo((cx + dx)*2, (cy + dy)*2);
+    ctx.stroke();
+  });
+  ctx.beginPath();
+  ctx.strokeStyle = ON;
+  ctx.arc(cx*2, cy*2, 8*2, 0, Math.PI*2);
+  ctx.stroke();
+
+  // Temperature
+  ctx.fillStyle = ON;
+  ctx.font = 'bold 36px VT323, monospace';
+  ctx.fillText('18°C', 80, 50);
+
+  // City
+  ctx.fillStyle = DIM;
+  ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('PARIS, FR', 82, 64);
+
+  // Separator
+  ctx.strokeStyle = DIM;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(10*2, 75*2);
+  ctx.lineTo(118*2, 75*2);
+  ctx.stroke();
+
+  // Bottom stats
+  ctx.fillStyle = DIM;
+  ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('HUM 62%', 10*2, 88*2);
+  ctx.fillText('WIND 12km/h', 62*2, 88*2);
+
+  // Status
+  ctx.fillStyle = DIM;
+  ctx.font = '8px Space Mono, monospace';
+  ctx.fillText('SUNNY', 10*2, 100*2);
+}
+
+// ── Screen : Buddy ────────────────────────────────────────────────────────
+let   buddyBlink = false;
+let   blinkTimer = 0;
+const bob = () => Math.sin(animFrame * 0.08) * 2;
+
+function drawBuddy() {
+  clearOled();
+  blinkTimer++;
+  if (blinkTimer > 80 && blinkTimer < 85) buddyBlink = true;
+  else if (blinkTimer >= 85) { buddyBlink = false; blinkTimer = 0; }
+
+  const ox = 28, oy = 8 + bob();
+
+  // Body
+  ctx.strokeStyle = ON; ctx.lineWidth = 2;
+  ctx.strokeRect(ox*2, (oy+22)*2, 22*2, 20*2);
+
+  // Head
+  ctx.strokeRect((ox-1)*2, (oy+6)*2, 24*2, 18*2);
+
+  // Antenna
+  ctx.beginPath();
+  ctx.moveTo((ox+11)*2, (oy+6)*2);
+  ctx.lineTo((ox+11)*2, (oy+1)*2);
+  ctx.stroke();
+  ctx.fillStyle = ON;
+  ctx.beginPath();
+  ctx.arc((ox+11)*2, oy*2, 3, 0, Math.PI*2);
+  ctx.fill();
+
+  // Eyes
+  if (!buddyBlink) {
+    ctx.fillStyle = ON;
+    ctx.fillRect((ox+3)*2, (oy+11)*2, 5*2, 5*2);
+    ctx.fillRect((ox+14)*2, (oy+11)*2, 5*2, 5*2);
+    ctx.fillStyle = OFF;
+    ctx.fillRect((ox+5)*2, (oy+12)*2, 2*2, 2*2);
+    ctx.fillRect((ox+16)*2, (oy+12)*2, 2*2, 2*2);
+  } else {
+    ctx.strokeStyle = ON;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo((ox+3)*2, (oy+13)*2);
+    ctx.lineTo((ox+8)*2, (oy+13)*2);
+    ctx.moveTo((ox+14)*2, (oy+13)*2);
+    ctx.lineTo((ox+19)*2, (oy+13)*2);
+    ctx.stroke();
+  }
+
+  // Smile
+  ctx.strokeStyle = ON;
+  ctx.beginPath();
+  ctx.arc((ox+11)*2, (oy+20)*2, 5*2, 0.1, Math.PI - 0.1);
+  ctx.stroke();
+
+  // Arms
+  ctx.strokeStyle = ON;
+  ctx.beginPath();
+  ctx.moveTo(ox*2, (oy+28)*2);
+  ctx.lineTo((ox-5)*2, (oy+35)*2);
+  ctx.moveTo((ox+22)*2, (oy+28)*2);
+  ctx.lineTo((ox+27)*2, (oy+35)*2);
+  ctx.stroke();
+
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo((ox+7)*2, (oy+42)*2);
+  ctx.lineTo((ox+7)*2, (oy+50)*2);
+  ctx.moveTo((ox+15)*2, (oy+42)*2);
+  ctx.lineTo((ox+15)*2, (oy+50)*2);
+  ctx.stroke();
+
+  // LED chest
+  ctx.fillStyle = animFrame % 40 < 20 ? ON : DIM;
+  ctx.beginPath();
+  ctx.arc((ox+11)*2, (oy+32)*2, 2*2, 0, Math.PI*2);
+  ctx.fill();
+
+  // Right panel: status
+  ctx.fillStyle = DIM;
+  ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('STATUS', 76*2, 20*2);
+  ctx.fillStyle = ON;
+  ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('HAPPY', 76*2, 32*2);
+
+  ctx.fillStyle = DIM;
+  ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('DRINK', 76*2, 48*2);
+  ctx.fillText('WATER!', 76*2, 58*2);
+
+  // Water progress
+  rect(76, 64, 36, 6, DIM);
+  rect(76, 64, Math.floor(36 * (animFrame % 200) / 200), 6, ON, true);
+}
+
+// ── Render Loop ───────────────────────────────────────────────────────────
+function render() {
+  animFrame++;
+  if (currentScreen === 'clock')   drawClock();
+  if (currentScreen === 'weather') drawWeather();
+  if (currentScreen === 'buddy')   drawBuddy();
+  requestAnimationFrame(render);
+}
+render();
+
+// Auto-rotate screens
+function setScreen(name) {
+  currentScreen = name;
+  document.querySelectorAll('.screen-tab').forEach(t => {
+    t.classList.toggle('active', t.textContent.toLowerCase() === name);
+  });
+}
+
+let autoIdx = 0;
+const screens = ['clock', 'weather', 'buddy'];
+setInterval(() => {
+  autoIdx = (autoIdx + 1) % screens.length;
+  setScreen(screens[autoIdx]);
+}, 4000);
+
+// ── FAQ ───────────────────────────────────────────────────────────────────
+function toggleFaq(el) {
+  const item = el.parentElement;
+  const isOpen = item.classList.contains('open');
+  document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+  if (!isOpen) item.classList.add('open');
+}
+
+// ── Scroll reveal ─────────────────────────────────────────────────────────
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.style.opacity = '1';
+      e.target.style.transform = 'translateY(0)';
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.build-card, .dl-card, .community-card, .changelog-item, .faq-item').forEach(el => {
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(24px)';
+  el.style.transition = 'opacity .5s ease, transform .5s ease';
+  observer.observe(el);
+});
+</script>
+</body>
+</html>
