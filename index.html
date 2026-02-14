@@ -515,7 +515,7 @@
       <div class="screen-tabs">
         <button class="screen-tab active" onclick="setScreen('clock')">Clock</button>
         <button class="screen-tab" onclick="setScreen('weather')">Weather</button>
-        <button class="screen-tab" onclick="setScreen('buddy')">Buddy</button>
+        <button class="screen-tab" onclick="setScreen('boot')">Boot</button>
       </div>
       <div class="esp-board">
         <span class="esp-label">ESP32 WROOM</span>
@@ -709,47 +709,28 @@ function drawWeather() {
   ctx.fillText('HUM 62%', 10*2, 88*2); ctx.fillText('WIND 12km/h', 62*2, 88*2);
   ctx.fillStyle = DIM; ctx.font = '8px Space Mono, monospace'; ctx.fillText('SUNNY', 10*2, 100*2);
 }
-let buddyBlink = false, blinkTimer = 0;
-const bob = () => Math.sin(animFrame * 0.08) * 2;
-function drawBuddy() {
+// ── Screen : Boot ────────────────────────────────────────────────────────
+const bootImg = new Image();
+bootImg.crossOrigin = 'anonymous';
+bootImg.src = 'https://raw.githubusercontent.com/Arcan0va/SproutRob/main/boot_screen.png';
+
+function drawBoot() {
   clearOled();
-  blinkTimer++;
-  if (blinkTimer > 80 && blinkTimer < 85) buddyBlink = true;
-  else if (blinkTimer >= 85) { buddyBlink = false; blinkTimer = 0; }
-  const ox = 28, oy = 8 + bob();
-  ctx.strokeStyle = ON; ctx.lineWidth = 2;
-  ctx.strokeRect(ox*2, (oy+22)*2, 22*2, 20*2);
-  ctx.strokeRect((ox-1)*2, (oy+6)*2, 24*2, 18*2);
-  ctx.beginPath(); ctx.moveTo((ox+11)*2,(oy+6)*2); ctx.lineTo((ox+11)*2,(oy+1)*2); ctx.stroke();
-  ctx.fillStyle = ON; ctx.beginPath(); ctx.arc((ox+11)*2, oy*2, 3, 0, Math.PI*2); ctx.fill();
-  if (!buddyBlink) {
-    ctx.fillStyle = ON;
-    ctx.fillRect((ox+3)*2,(oy+11)*2,5*2,5*2); ctx.fillRect((ox+14)*2,(oy+11)*2,5*2,5*2);
-    ctx.fillStyle = OFF;
-    ctx.fillRect((ox+5)*2,(oy+12)*2,2*2,2*2); ctx.fillRect((ox+16)*2,(oy+12)*2,2*2,2*2);
-  } else {
-    ctx.strokeStyle = ON; ctx.lineWidth = 2; ctx.beginPath();
-    ctx.moveTo((ox+3)*2,(oy+13)*2); ctx.lineTo((ox+8)*2,(oy+13)*2);
-    ctx.moveTo((ox+14)*2,(oy+13)*2); ctx.lineTo((ox+19)*2,(oy+13)*2); ctx.stroke();
+  if (bootImg.complete && bootImg.naturalWidth > 0) {
+    ctx.drawImage(bootImg, 0, 0, 256, 128);
+    return;
   }
-  ctx.strokeStyle = ON; ctx.beginPath(); ctx.arc((ox+11)*2,(oy+20)*2,5*2,0.1,Math.PI-0.1); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ox*2,(oy+28)*2); ctx.lineTo((ox-5)*2,(oy+35)*2);
-  ctx.moveTo((ox+22)*2,(oy+28)*2); ctx.lineTo((ox+27)*2,(oy+35)*2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo((ox+7)*2,(oy+42)*2); ctx.lineTo((ox+7)*2,(oy+50)*2);
-  ctx.moveTo((ox+15)*2,(oy+42)*2); ctx.lineTo((ox+15)*2,(oy+50)*2); ctx.stroke();
-  ctx.fillStyle = animFrame % 40 < 20 ? ON : DIM;
-  ctx.beginPath(); ctx.arc((ox+11)*2,(oy+32)*2,2*2,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle = DIM; ctx.font = '9px Space Mono, monospace';
-  ctx.fillText('STATUS', 76*2, 20*2);
-  ctx.fillStyle = ON; ctx.fillText('HAPPY', 76*2, 32*2);
-  ctx.fillStyle = DIM; ctx.fillText('DRINK', 76*2, 48*2); ctx.fillText('WATER!', 76*2, 58*2);
-  rect(76, 64, 36, 6, DIM); rect(76, 64, Math.floor(36*(animFrame%200)/200), 6, ON, true);
+  // Fallback texte pendant le chargement
+  ctx.fillStyle = ON;
+  ctx.font = 'bold 16px VT323, monospace';
+  ctx.fillText('Booting !', 80, 60);
 }
-function render() { animFrame++; if(currentScreen==='clock') drawClock(); if(currentScreen==='weather') drawWeather(); if(currentScreen==='buddy') drawBuddy(); requestAnimationFrame(render); }
+
+function render() { animFrame++; if(currentScreen==='clock') drawClock(); if(currentScreen==='weather') drawWeather(); if(currentScreen==='boot') drawBoot(); requestAnimationFrame(render); }
 render();
 function setScreen(name) { currentScreen = name; document.querySelectorAll('.screen-tab').forEach(t => { t.classList.toggle('active', t.textContent.toLowerCase() === name); }); }
 let autoIdx = 0;
-const screens = ['clock','weather','buddy'];
+const screens = ['clock','weather','boot'];
 setInterval(() => { autoIdx = (autoIdx+1)%screens.length; setScreen(screens[autoIdx]); }, 4000);
 function toggleFaq(el) { const item = el.parentElement; const isOpen = item.classList.contains('open'); document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open')); if(!isOpen) item.classList.add('open'); }
 const observer = new IntersectionObserver((entries) => { entries.forEach(e => { if(e.isIntersecting) { e.target.style.opacity='1'; e.target.style.transform='translateY(0)'; } }); }, { threshold: 0.1 });
