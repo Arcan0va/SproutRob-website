@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robob — Your ESP32 Desk Companion</title>
+
+  <!-- ─── POLICES GOOGLE FONTS ───────────────────────────────────────────
+       VT323      : police pixel art pour les gros titres et chiffres
+       DM Sans    : police corps de texte, lisible et moderne
+       Space Mono : police monospace pour les labels, badges, boutons
+  ──────────────────────────────────────────────────────────────────────── -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=DM+Sans:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <style>
+
+    /* ─── VARIABLES CSS (DESIGN TOKENS) ────────────────────────────────
+       Toutes les couleurs et polices sont centralisées ici.
+       Modifier une variable ici = ça change partout sur le site.
+       --bg / --bg2 / --bg3 : niveaux de fond sombre (du plus foncé au plus clair)
+       --green : couleur principale verte phosphore (style OLED)
+       --text / --muted : texte principal et texte atténué
+    ──────────────────────────────────────────────────────────────────── */
+    :root {
+      --bg:       #08090b;
+      --bg2:      #0e1117;
+      --bg3:      #161b22;
+      --border:   rgba(255,255,255,0.07);
+      --green:    #39ff8f;
+      --green2:   #1aff6e;
+      --yellow:   #ffe566;
+      --pink:     #ff6eb4;
+      --blue:     #6eb4ff;
+      --text:     #e6edf3;
+      --muted:    #7d8590;
+      --font-px:  'VT323', monospace;
+      --font-mono:'Space Mono', monospace;
+      --font-body:'DM Sans', sans-serif;
+    }
+
+    /* ─── RESET GLOBAL ──────────────────────────────────────────────────
+       Supprime les marges/paddings par défaut du navigateur.
+       box-sizing: border-box = le padding est inclus dans la largeur des éléments.
+       scroll-behavior: smooth = les ancres (#build, #faq...) scrollent doucement.
+    ──────────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+
+    /* ─── EFFET SCANLINES (body::before) ────────────────────────────────
+       Superpose des lignes horizontales très légères sur toute la page.
+       Donne l'effet d'un vieux moniteur CRT / écran OLED.
+       position: fixed + inset: 0 = couvre tout l'écran en permanence.
+       pointer-events: none = invisible aux clics, juste décoratif.
+       z-index: 9999 = au-dessus de tout le contenu.
+    ──────────────────────────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── TEXTURE BRUIT/GRAIN (body::after) ────────────────────────────
+       Ajoute un grain subtil sur toute la page via un SVG inline encodé.
+       Renforce l'ambiance "vieux terminal" sans alourdir le chargement.
+    ──────────────────────────────────────────────────────────────────── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9998;
+      opacity: 0.4;
+    }
+
+    /* ─── BARRE DE NAVIGATION FIXE ──────────────────────────────────────
+       position: fixed = reste en haut même en scrollant.
+       backdrop-filter: blur = flou sur le contenu derrière (effet verre).
+       clamp() = padding responsive qui s'adapte à la largeur de l'écran.
+    ──────────────────────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(20px, 5vw, 80px);
+      height: 64px;
+      background: rgba(8,9,11,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Logo "ROBOB" avec le point clignotant à gauche */
+    .nav-logo {
+      font-family: var(--font-px);
+      font-size: 28px;
+      color: var(--green);
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-logo .dot {
+      width: 8px; height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: blink 1.4s step-end infinite;
+    }
+
+    /* Liens de navigation centraux */
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+      align-items: center;
+    }
+    .nav-links a {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--green); }
+
+    /* Icônes réseaux sociaux dans la nav */
+    .nav-socials {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .nav-socials a {
+      color: var(--muted);
+      font-size: 16px;
+      transition: color .2s;
+      display: flex;
+      align-items: center;
+    }
+    .nav-socials a:hover { color: var(--green); }
+
+    /* Bouton "Get Robob" en haut à droite */
+    .nav-cta {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 18px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      border-radius: 6px;
+      transition: background .2s, color .2s;
+    }
+    .nav-cta:hover { background: var(--green); color: var(--bg); }
+
+    /* ─── SECTION HERO (première page) ──────────────────────────────────
+       Grille 2 colonnes : texte à gauche, mockup OLED à droite.
+       min-height: 100vh = prend toute la hauteur de l'écran.
+       clamp() = padding responsive.
+    ──────────────────────────────────────────────────────────────────── */
+    #hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      padding: 80px clamp(20px, 5vw, 80px) 40px;
+      gap: 60px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Grille de fond du hero (lignes horizontales + verticales légères) */
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 40%, transparent 100%);
+    }
+
+    /* Halo vert au centre du hero */
+    #hero::after {
+      content: '';
+      position: absolute;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(57,255,143,0.06) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    /* Conteneur texte hero — z-index: 1 pour passer au-dessus des pseudo-éléments */
+    .hero-text { position: relative; z-index: 1; }
+
+    /* Badge "Open Source · ESP32 · Self-Build" avec point clignotant */
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--green);
+      background: rgba(57,255,143,0.08);
+      border: 1px solid rgba(57,255,143,0.2);
+      padding: 6px 14px;
+      border-radius: 20px;
+      margin-bottom: 28px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .hero-badge::before { content: '●'; font-size: 8px; animation: blink 1.4s step-end infinite; }
+
+    /* Titre principal — clamp() = taille responsive entre 56px et 100px */
+    h1 {
+      font-family: var(--font-px);
+      font-size: clamp(56px, 8vw, 100px);
+      line-height: 0.95;
+      color: var(--text);
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }
+    h1 span { color: var(--green); }
+
+    /* Paragraphe de description sous le titre */
+    .hero-sub {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 480px;
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+    .hero-sub strong { color: var(--text); font-weight: 500; }
+
+    /* Conteneur des deux boutons CTA */
+    .hero-buttons { display: flex; gap: 16px; flex-wrap: wrap; }
+
+    /* Bouton principal vert (Start Building) */
+    .btn-primary {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 14px 28px;
+      background: var(--green);
+      color: var(--bg);
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      letter-spacing: 0.5px;
+      display: inline-block;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(57,255,143,0.3); }
+
+    /* Bouton secondaire transparent (GitHub) */
+    .btn-secondary {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 14px 28px;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+      display: inline-block;
+    }
+    .btn-secondary:hover { border-color: var(--green); color: var(--green); }
+
+    /* ─── MOCKUP OLED (côté droit du hero) ──────────────────────────────
+       Représentation visuelle de l'appareil physique :
+       - .oled-screen : l'écran OLED (canvas animé dedans)
+       - .screen-tabs : les boutons Clock / Weather / Boot
+       - .esp-board : représentation de la carte ESP32
+    ──────────────────────────────────────────────────────────────────── */
+    .hero-visual { position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; }
+    .device-mockup { position: relative; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+    .oled-screen {
+      width: 256px; height: 128px;
+      background: #000;
+      border: 3px solid #2a2a2a;
+      border-radius: 8px;
+      box-shadow: 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a, 0 0 40px rgba(57,255,143,0.15), inset 0 0 20px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+    .oled-screen canvas { display: block; }
+
+    /* Tabs pour switcher entre les screens simulés */
+    .screen-tabs { display: flex; gap: 8px; }
+    .screen-tab {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .2s;
+      background: transparent;
+    }
+    .screen-tab.active { background: rgba(57,255,143,0.1); border-color: var(--green); color: var(--green); }
+
+    /* Représentation visuelle de la carte ESP32 avec ses pins sur les côtés */
+    .esp-board {
+      width: 180px; height: 60px;
+      background: #0d2318;
+      border: 2px solid #1a4a2e;
+      border-radius: 6px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Rangées de pins gauche et droite simulées avec un dégradé répété */
+    .esp-board::before, .esp-board::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px; height: 40px;
+      background: repeating-linear-gradient(180deg, #2a6a3a 0px, #2a6a3a 3px, transparent 3px, transparent 6px);
+    }
+    .esp-board::before { left: -10px; }
+    .esp-board::after  { right: -10px; }
+    .esp-label { font-family: var(--font-mono); font-size: 9px; color: #2a8a4a; letter-spacing: 2px; }
+
+    /* ─── BARRE DE STATS ────────────────────────────────────────────────
+       4 chiffres clés : prix, nb d'écrans, temps de build, soudure.
+       Séparation visuelle entre le hero et les sections suivantes.
+    ──────────────────────────────────────────────────────────────────── */
+    .stats-bar {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 32px clamp(20px, 5vw, 80px);
+      display: flex;
+      justify-content: space-around;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+    .stat-item { text-align: center; }
+    .stat-num { font-family: var(--font-px); font-size: 52px; color: var(--green); line-height: 1; }
+    .stat-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
+
+    /* ─── STYLES COMMUNS À TOUTES LES SECTIONS ──────────────────────────
+       .section-tag : petit label vert en haut de chaque section ("How to build", etc.)
+       h2 : titre de section responsive avec clamp()
+       .section-sub : sous-titre descriptif
+    ──────────────────────────────────────────────────────────────────── */
+    section { padding: 100px clamp(20px, 5vw, 80px); }
+    .section-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    /* Petit trait horizontal avant chaque section-tag */
+    .section-tag::before { content: ''; width: 24px; height: 1px; background: var(--green); }
+    h2 { font-family: var(--font-px); font-size: clamp(36px, 5vw, 64px); line-height: 1; margin-bottom: 16px; }
+    .section-sub { font-size: 17px; color: var(--muted); max-width: 560px; margin-bottom: 64px; line-height: 1.7; }
+
+    /* ─── SECTION BUILD GUIDE ───────────────────────────────────────────
+       Grille de 4 cartes (les étapes), puis tableau des composants.
+       Les 4 cartes s'adaptent automatiquement avec auto-fit / minmax.
+       data-step est utilisé en CSS pour afficher le numéro géant en fond.
+    ──────────────────────────────────────────────────────────────────── */
+    #build { background: var(--bg); }
+    .build-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .build-card { background: var(--bg2); padding: 36px 32px; position: relative; overflow: hidden; transition: background .2s; }
+    .build-card:hover { background: var(--bg3); }
+    /* Numéro d'étape géant en fond de chaque carte (01, 02, 03, 04) */
+    .build-card::before { content: attr(data-step); position: absolute; top: -10px; right: 16px; font-family: var(--font-px); font-size: 96px; color: rgba(255,255,255,0.03); line-height: 1; pointer-events: none; }
+    .build-icon { font-size: 32px; margin-bottom: 20px; }
+    .build-card h3 { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .build-card p { font-size: 14px; color: var(--muted); line-height: 1.7; }
+    .build-card .tag { display: inline-block; margin-top: 16px; font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 20px; background: rgba(57,255,143,0.08); color: var(--green); border: 1px solid rgba(57,255,143,0.15); }
+
+    /* Tableau liste des composants avec colonnes : Nom / Prix / Statut */
+    .parts-list { margin-top: 64px; background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+    .parts-header { padding: 20px 32px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; display: grid; grid-template-columns: 1fr auto auto; gap: 40px; }
+    .part-row { padding: 18px 32px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto auto; gap: 40px; align-items: center; transition: background .15s; }
+    .part-row:last-child { border-bottom: none; }
+    .part-row:hover { background: var(--bg3); }
+    .part-name { font-size: 15px; font-weight: 500; }
+    .part-name span { display: block; font-size: 12px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
+    .part-price { font-family: var(--font-mono); font-size: 14px; color: var(--yellow); white-space: nowrap; }
+    /* Badge "Required" (vert) ou "Optional" (jaune) */
+    .part-req { font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+    .part-req.required { background: rgba(57,255,143,0.08); color: var(--green); border: 1px solid rgba(57,255,143,0.15); }
+    .part-req.optional { background: rgba(255,229,102,0.08); color: var(--yellow); border: 1px solid rgba(255,229,102,0.15); }
+
+    /* ─── SECTION DOWNLOAD ──────────────────────────────────────────────
+       3 cartes : Firmware (.ino), App Android (.apk), Boîtier 3D (.stl).
+       Fond légèrement différent (--bg2) pour alterner visuellement.
+       Chaque carte a un halo vert en haut à gauche via ::after.
+    ──────────────────────────────────────────────────────────────────── */
+    #download { background: var(--bg2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+    .dl-card { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 36px; display: flex; flex-direction: column; gap: 20px; transition: border-color .2s, transform .2s; position: relative; overflow: hidden; }
+    .dl-card:hover { border-color: var(--green); transform: translateY(-4px); }
+    .dl-card::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at top left, rgba(57,255,143,0.04), transparent 60%); pointer-events: none; }
+    .dl-card-icon { font-size: 36px; }
+    .dl-card h3 { font-family: var(--font-px); font-size: 32px; color: var(--text); }
+    .dl-card p { font-size: 14px; color: var(--muted); line-height: 1.7; flex: 1; }
+    /* Badge version avec point vert devant via ::before */
+    .dl-version { font-family: var(--font-mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+    .dl-version::before { content: ''; width: 6px; height: 6px; background: var(--green); border-radius: 50%; }
+
+    /* ─── SECTION CHANGELOG ─────────────────────────────────────────────
+       Timeline verticale : chaque version = une entrée avec date + liste.
+       La ligne verticale et le point sont créés avec ::before et ::after.
+    ──────────────────────────────────────────────────────────────────── */
+    #changelog { background: var(--bg); }
+    .changelog-list { max-width: 720px; display: flex; flex-direction: column; gap: 0; }
+    .changelog-item { display: grid; grid-template-columns: 120px 1fr; gap: 32px; padding: 32px 0; border-bottom: 1px solid var(--border); position: relative; }
+    /* Ligne verticale de la timeline */
+    .changelog-item::before { content: ''; position: absolute; left: 119px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+    /* Point vert sur la timeline */
+    .changelog-item::after { content: ''; position: absolute; left: 113px; top: 40px; width: 13px; height: 13px; background: var(--bg); border: 2px solid var(--green); border-radius: 50%; }
+    .cl-version { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--green); padding-top: 4px; }
+    .cl-date { font-family: var(--font-mono); font-size: 10px; color: var(--muted); margin-top: 4px; }
+    .cl-content h4 { font-family: var(--font-mono); font-size: 14px; color: var(--text); margin-bottom: 12px; }
+    .cl-content ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    /* Flèche verte devant chaque item du changelog */
+    .cl-content li { font-size: 14px; color: var(--muted); display: flex; gap: 10px; align-items: flex-start; }
+    .cl-content li::before { content: '→'; color: var(--green); flex-shrink: 0; font-family: var(--font-mono); }
+    /* Badges colorés NEW / FIX / IMP */
+    .cl-badge { display: inline-block; font-family: var(--font-mono); font-size: 9px; padding: 2px 8px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+    .cl-badge.new { background: rgba(57,255,143,0.15); color: var(--green); }
+    .cl-badge.fix { background: rgba(255,110,180,0.15); color: var(--pink); }
+    .cl-badge.imp { background: rgba(110,180,255,0.15); color: var(--blue); }
+
+    /* ─── SECTION FAQ ───────────────────────────────────────────────────
+       Accordion : cliquer sur une question l'ouvre/ferme.
+       max-height: 0 → max-height: 300px = animation CSS pure, pas de JS pour l'animation.
+       Le JS gère seulement l'ajout/retrait de la classe .open.
+    ──────────────────────────────────────────────────────────────────── */
+    #faq { background: var(--bg2); border-top: 1px solid var(--border); }
+    .faq-list { max-width: 720px; display: flex; flex-direction: column; gap: 2px; }
+    .faq-item { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .faq-q { padding: 20px 24px; font-family: var(--font-mono); font-size: 14px; color: var(--text); cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; transition: color .2s; user-select: none; }
+    .faq-q:hover { color: var(--green); }
+    /* Chevron "+" qui tourne à 45° quand ouvert */
+    .faq-q .chevron { color: var(--muted); font-size: 18px; transition: transform .25s; flex-shrink: 0; }
+    .faq-item.open .faq-q { color: var(--green); }
+    .faq-item.open .chevron { transform: rotate(45deg); }
+    /* Animation d'ouverture via max-height */
+    .faq-a { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+    .faq-item.open .faq-a { max-height: 300px; }
+    .faq-a-inner { padding: 16px 24px 20px; font-size: 14px; color: var(--muted); line-height: 1.8; border-top: 1px solid var(--border); }
+    .faq-a-inner a { color: var(--green); }
+
+    /* ─── SECTION COMMUNITY ─────────────────────────────────────────────
+       3 cartes : Discord, GitHub, Contact.
+       Même pattern que les autres grilles auto-fit.
+       Flèche → ajoutée automatiquement après chaque lien via ::after.
+    ──────────────────────────────────────────────────────────────────── */
+    #community { background: var(--bg); }
+    .community-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .community-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 32px; display: flex; flex-direction: column; gap: 16px; transition: border-color .2s, transform .15s; }
+    .community-card:hover { border-color: var(--green); transform: translateY(-3px); }
+    .community-card-icon { font-size: 36px; }
+    .community-card h3 { font-family: var(--font-mono); font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .community-card p { font-size: 14px; color: var(--muted); line-height: 1.7; flex: 1; }
+    .community-card a { font-family: var(--font-mono); font-size: 12px; color: var(--green); display: flex; align-items: center; gap: 6px; }
+    .community-card a::after { content: '→'; }
+    .community-card a:hover { text-decoration: underline; }
+
+    /* ─── BANDE RÉSEAUX SOCIAUX ─────────────────────────────────────────
+       Rangée de boutons avec icônes SVG pour chaque réseau.
+       Centré, fond légèrement différent pour la séparation visuelle.
+    ──────────────────────────────────────────────────────────────────── */
+    .socials-strip {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      padding: 48px clamp(20px, 5vw, 80px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+    .socials-strip p {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    .socials-icons {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    /* Chaque bouton réseau social avec icône SVG + texte */
+    .social-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--muted);
+      transition: border-color .2s, color .2s, background .2s;
+      background: var(--bg);
+    }
+    .social-btn:hover { border-color: var(--green); color: var(--green); background: rgba(57,255,143,0.05); }
+    .social-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+    /* ─── FOOTER ────────────────────────────────────────────────────────
+       Barre simple en bas : logo à gauche, liens au centre, copyright à droite.
+    ──────────────────────────────────────────────────────────────────── */
+    footer {
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      padding: 48px clamp(20px, 5vw, 80px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+    .footer-logo { font-family: var(--font-px); font-size: 24px; color: var(--green); }
+    .footer-links { display: flex; gap: 24px; list-style: none; flex-wrap: wrap; }
+    .footer-links a { font-family: var(--font-mono); font-size: 11px; color: var(--muted); transition: color .2s; text-transform: uppercase; letter-spacing: 1px; }
+    .footer-links a:hover { color: var(--green); }
+    .footer-copy { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+    /* ─── ANIMATIONS CSS ────────────────────────────────────────────────
+       blink      : clignotement du point dans le logo et le badge hero
+       float      : lévitation douce du mockup OLED dans le hero
+       fadeUp     : apparition avec montée (utilisé sur les éléments du hero)
+       screenGlow : pulsation du halo vert autour de l'écran OLED
+    ──────────────────────────────────────────────────────────────────── */
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes screenGlow {
+      0%, 100% { box-shadow: 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a, 0 0 30px rgba(57,255,143,0.1), inset 0 0 20px rgba(0,0,0,0.5); }
+      50%       { box-shadow: 0 0 0 6px #1a1a1a, 0 0 0 7px #2a2a2a, 0 0 50px rgba(57,255,143,0.25), inset 0 0 20px rgba(0,0,0,0.5); }
+    }
+
+    /* Entrée en scène décalée des éléments du hero (badge, titre, texte, boutons) */
+    .hero-text > * { animation: fadeUp .6s ease both; }
+    .hero-text > *:nth-child(1) { animation-delay: .1s; }
+    .hero-text > *:nth-child(2) { animation-delay: .2s; }
+    .hero-text > *:nth-child(3) { animation-delay: .3s; }
+    .hero-text > *:nth-child(4) { animation-delay: .4s; }
+    .hero-text > *:nth-child(5) { animation-delay: .5s; }
+
+    /* Le mockup flotte et l'écran pulse */
+    .device-mockup { animation: float 4s ease-in-out infinite; }
+    .oled-screen   { animation: screenGlow 3s ease-in-out infinite; }
+
+    /* ─── RESPONSIVE MOBILE (< 768px) ───────────────────────────────────
+       Le hero passe en 1 colonne, les liens nav sont cachés,
+       le changelog passe en 1 colonne, les colonnes du tableau sont réduites.
+    ──────────────────────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #hero { grid-template-columns: 1fr; text-align: center; padding-top: 100px; }
+      .hero-buttons { justify-content: center; }
+      .hero-sub { margin: 0 auto 40px; }
+      .hero-badge { margin: 0 auto 28px; }
+      nav .nav-links { display: none; }
+      nav .nav-socials { display: none; }
+      .changelog-item { grid-template-columns: 1fr; gap: 12px; }
+      .changelog-item::before, .changelog-item::after { display: none; }
+      .parts-header, .part-row { grid-template-columns: 1fr 1fr; }
+      .part-req { display: none; }
+    }
+
+  </style>
+</head>
+<body>
+
+<!-- ─── NAVIGATION FIXE ──────────────────────────────────────────────────
+     Logo à gauche, liens au centre, icônes réseaux + bouton CTA à droite.
+     Les icônes SVG des réseaux sont inline pour éviter les requêtes externes.
+──────────────────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-logo">
+    <span class="dot"></span>
+    ROBOB
+  </div>
+  <ul class="nav-links">
+    <li><a href="#build">Build</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="#changelog">Changelog</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li><a href="#community">Community</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <div class="nav-socials">
+    <!-- Twitter/X -->
+    <a href="https://twitter.com/robob_placeholder" target="_blank" title="Twitter/X">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    </a>
+    <!-- TikTok -->
+    <a href="https://tiktok.com/@robob_placeholder" target="_blank" title="TikTok">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.78 1.52V6.76a4.85 4.85 0 01-1.01-.07z"/></svg>
+    </a>
+    <!-- Instagram -->
+    <a href="https://instagram.com/robob_placeholder" target="_blank" title="Instagram">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+    </a>
+    <!-- YouTube -->
+    <a href="https://youtube.com/@robob_placeholder" target="_blank" title="YouTube">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+    </a>
+    <!-- Discord -->
+    <a href="https://discord.gg/robob_placeholder" target="_blank" title="Discord">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.079.11 18.1.128 18.116a19.9 19.9 0 005.993 3.03.077.077 0 00.084-.028 13.986 13.986 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+    </a>
+  </div>
+  <a href="#download" class="nav-cta">Get Robob</a>
+</nav>
+
+<!-- ─── HERO ──────────────────────────────────────────────────────────────
+     Texte de présentation à gauche + mockup de l'appareil à droite.
+     Le canvas #oledCanvas est animé en JS pour simuler les 3 écrans.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="hero">
+  <div class="hero-text">
+    <div class="hero-badge">Open Source · ESP32 · Self-Build</div>
+    <h1>Your desk<br/>needs a<br/><span>buddy.</span></h1>
+    <p class="hero-sub">
+      <strong>Robob</strong> is a tiny ESP32-powered companion that lives on your desk.
+      It tells you the time, weather, and reminds you to drink water —
+      all on a glowing OLED screen. <strong>You build it yourself.</strong>
+    </p>
+    <div class="hero-buttons">
+      <a href="#build" class="btn-primary">Start Building →</a>
+      <a href="https://github.com/Arcan0va/SproutRob" target="_blank" class="btn-secondary">GitHub ↗</a>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="device-mockup">
+      <!-- L'écran OLED simulé — le canvas est dessiné entièrement en JS -->
+      <div class="oled-screen">
+        <canvas id="oledCanvas" width="256" height="128"></canvas>
+      </div>
+      <!-- Boutons pour changer manuellement l'écran simulé -->
+      <div class="screen-tabs">
+        <button class="screen-tab active" onclick="setScreen('clock')">Clock</button>
+        <button class="screen-tab" onclick="setScreen('weather')">Weather</button>
+        <button class="screen-tab" onclick="setScreen('boot')">Boot</button>
+      </div>
+      <!-- Représentation visuelle de la carte ESP32 -->
+      <div class="esp-board">
+        <span class="esp-label">ESP32 WROOM</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── BARRE DE STATS ───────────────────────────────────────────────────
+     4 métriques clés pour convaincre en un coup d'oeil.
+──────────────────────────────────────────────────────────────────────── -->
+<div class="stats-bar">
+  <div class="stat-item"><div class="stat-num">~10€</div><div class="stat-label">Total Cost</div></div>
+  <div class="stat-item"><div class="stat-num">3</div><div class="stat-label">Screens</div></div>
+  <div class="stat-item"><div class="stat-num">30min</div><div class="stat-label">Build Time</div></div>
+  <div class="stat-item"><div class="stat-num">0</div><div class="stat-label">Soldering Needed</div></div>
+</div>
+
+<!-- ─── GUIDE DE BUILD ───────────────────────────────────────────────────
+     4 étapes illustrées + tableau des composants avec prix et statut.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="build">
+  <div class="section-tag">How to build</div>
+  <h2>4 steps to<br/>your Robob</h2>
+  <p class="section-sub">No soldering, no experience needed. Just wires, patience, and a breadboard.</p>
+  <div class="build-grid">
+    <div class="build-card" data-step="01"><div class="build-icon">🛒</div><h3>Get the parts</h3><p>An ESP32 WROOM dev board and a 0.96" I2C OLED display. That's literally it. Links below.</p><span class="tag">~10€ total</span></div>
+    <div class="build-card" data-step="02"><div class="build-icon">🔌</div><h3>Wire it up</h3><p>Connect SCL → pin 22, SDA → pin 21, VCC → 3.3V, GND → GND. Four wires on a breadboard.</p><span class="tag">No soldering</span></div>
+    <div class="build-card" data-step="03"><div class="build-icon">⚡</div><h3>Flash the firmware</h3><p>Download the latest firmware, open Arduino IDE, plug in USB, flash. Done in under 5 minutes.</p><span class="tag">Arduino IDE</span></div>
+    <div class="build-card" data-step="04"><div class="build-icon">📱</div><h3>Setup via app</h3><p>Open the Robob Android app, connect via Bluetooth, enter your WiFi and OpenWeatherMap key. Robob goes live.</p><span class="tag">Android app</span></div>
+  </div>
+  <!-- Tableau liste des composants -->
+  <div class="parts-list">
+    <div class="parts-header"><span>Component</span><span>Price</span><span>Status</span></div>
+    <div class="part-row"><div class="part-name">ESP32 WROOM Dev Board<span>38-pin, USB-C or micro-USB</span></div><div class="part-price">~6€</div><div class="part-req required">Required</div></div>
+    <div class="part-row"><div class="part-name">0.96" I2C OLED Display<span>128×64 px, SSD1306</span></div><div class="part-price">~3€</div><div class="part-req required">Required</div></div>
+    <div class="part-row"><div class="part-name">Breadboard + Jumper Wires<span>Any size works</span></div><div class="part-price">~2€</div><div class="part-req required">Required</div></div>
+    <div class="part-row"><div class="part-name">100µF Capacitor<span>Between GND and 3.3V on screen</span></div><div class="part-price">&lt;1€</div><div class="part-req optional">Optional</div></div>
+    <div class="part-row"><div class="part-name">3D Printed Case<span>STL file available for free</span></div><div class="part-price">Free</div><div class="part-req optional">Optional</div></div>
+  </div>
+</section>
+
+<!-- ─── TÉLÉCHARGEMENTS ──────────────────────────────────────────────────
+     3 cartes : firmware .ino, APK Android, boîtier STL.
+     Les href="#" sont des placeholders à remplacer par les liens GitHub Releases.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="download">
+  <div class="section-tag">Downloads</div>
+  <h2>Get everything<br/>for free.</h2>
+  <p class="section-sub">All open source, all free, forever. Flash, install, enjoy.</p>
+  <div class="dl-grid">
+    <div class="dl-card"><div class="dl-card-icon">⚡</div><h3>Firmware</h3><p>The ESP32 firmware. Handles NTP time sync, OpenWeatherMap weather, OLED rendering and Bluetooth config.</p><div class="dl-version">v0.1.0-beta · Arduino C++</div><a href="#" class="btn-primary">Download .ino</a></div>
+    <div class="dl-card"><div class="dl-card-icon">📱</div><h3>Android App</h3><p>Config app to pair Robob via Bluetooth, send your WiFi credentials, API key and location in one tap.</p><div class="dl-version">v0.1.0-beta · Android 8+</div><a href="#" class="btn-primary">Download APK</a></div>
+    <div class="dl-card"><div class="dl-card-icon">🖨️</div><h3>3D Case</h3><p>Optional printable enclosure for your Robob. Designed for standard FDM printers, no supports needed.</p><div class="dl-version">v0.1.0 · STL / 3MF</div><a href="#" class="btn-primary">Download STL</a></div>
+  </div>
+</section>
+
+<!-- ─── CHANGELOG ────────────────────────────────────────────────────────
+     Timeline des versions. Ajouter une nouvelle version = dupliquer
+     un .changelog-item et mettre à jour version, date et liste.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="changelog">
+  <div class="section-tag">Changelog</div>
+  <h2>What's new</h2>
+  <p class="section-sub">Every update, every fix. Always open.</p>
+  <div class="changelog-list">
+    <div class="changelog-item">
+      <div><div class="cl-version">v0.1.0</div><div class="cl-date">Feb 2026</div></div>
+      <div class="cl-content">
+        <h4>Initial release 🎉</h4>
+        <ul>
+          <li><span class="cl-badge new">NEW</span>Clock screen with NTP sync</li>
+          <li><span class="cl-badge new">NEW</span>Weather screen via OpenWeatherMap</li>
+          <li><span class="cl-badge new">NEW</span>Buddy screen with idle animation</li>
+          <li><span class="cl-badge new">NEW</span>Bluetooth config via Android app</li>
+          <li><span class="cl-badge new">NEW</span>GPS-based location from phone</li>
+          <li><span class="cl-badge new">NEW</span>10s screen rotation</li>
+        </ul>
+      </div>
+    </div>
+    <div class="changelog-item">
+      <div><div class="cl-version">v0.2.0</div><div class="cl-date">Coming soon</div></div>
+      <div class="cl-content">
+        <h4>Next up 🔜</h4>
+        <ul>
+          <li><span class="cl-badge new">NEW</span>Pomodoro timer screen</li>
+          <li><span class="cl-badge new">NEW</span>Hydration reminders</li>
+          <li><span class="cl-badge new">NEW</span>Custom stopwatch</li>
+          <li><span class="cl-badge imp">IMP</span>Better weather icons on OLED</li>
+          <li><span class="cl-badge imp">IMP</span>Smoother buddy animations</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FAQ ──────────────────────────────────────────────────────────────
+     Accordion : chaque .faq-item s'ouvre/ferme au clic via toggleFaq() en JS.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="faq">
+  <div class="section-tag">FAQ</div>
+  <h2>Got questions?</h2>
+  <p class="section-sub">The most common ones, answered.</p>
+  <div class="faq-list">
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)">Do I need to know how to code?<span class="chevron">+</span></div><div class="faq-a"><div class="faq-a-inner">Nope. The firmware is pre-compiled and flashed via Arduino IDE with one click. The app handles all the config. Zero coding required.</div></div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)">Where do I get a free OpenWeatherMap API key?<span class="chevron">+</span></div><div class="faq-a"><div class="faq-a-inner">Create a free account at <a href="https://openweathermap.org" target="_blank">openweathermap.org</a>. The free tier gives you 1,000 calls/day, way more than Robob needs (it checks every 10 minutes).</div></div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)">Is iOS supported for the app?<span class="chevron">+</span></div><div class="faq-a"><div class="faq-a-inner">Not yet — Android only for now. iOS is on the roadmap. If you want to help port it, join the Discord!</div></div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)">My ESP32 doesn't show up in Arduino IDE. What do I do?<span class="chevron">+</span></div><div class="faq-a"><div class="faq-a-inner">You need to install the CP210x or CH340 USB driver depending on your board. Check the full troubleshooting guide in the Discord #help channel.</div></div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)">Can I customize the screens or add new ones?<span class="chevron">+</span></div><div class="faq-a"><div class="faq-a-inner">Yes! The firmware is fully open source. Each screen is a separate module. Fork the repo, add your screen, and send a PR — contributions welcome.</div></div></div>
+  </div>
+</section>
+
+<!-- ─── COMMUNITY ────────────────────────────────────────────────────────
+     3 cartes d'entrée vers Discord, GitHub et la page Contact.
+──────────────────────────────────────────────────────────────────────── -->
+<section id="community">
+  <div class="section-tag">Community & Contact</div>
+  <h2>Let's build<br/>together.</h2>
+  <p class="section-sub">Questions, builds, ideas — all welcome.</p>
+  <div class="community-grid">
+    <div class="community-card"><div class="community-card-icon">💬</div><h3>Discord</h3><p>The main hub. Ask questions, share your build, get help, suggest features, and hang out with other Robob makers.</p><a href="https://discord.gg/robob_placeholder" target="_blank">Join the server</a></div>
+    <div class="community-card"><div class="community-card-icon">🐙</div><h3>GitHub</h3><p>All source code lives here — firmware, app, and site. Open issues, submit PRs, star the repo if you like it!</p><a href="https://github.com/Arcan0va/SproutRob" target="_blank">View on GitHub</a></div>
+    <div class="community-card"><div class="community-card-icon">✉️</div><h3>Contact</h3><p>Got a specific question, a collab idea, or found a serious bug? Drop a message and we'll get back to you.</p><a href="contact.html">Go to contact page</a></div>
+  </div>
+</section>
+
+<!-- ─── BANDE RÉSEAUX SOCIAUX ─────────────────────────────────────────────
+     Boutons avec icônes SVG inline pour chaque réseau.
+     Remplacer les href="...placeholder" par les vrais liens quand dispo.
+──────────────────────────────────────────────────────────────────────── -->
+<div class="socials-strip">
+  <p>Follow Robob</p>
+  <div class="socials-icons">
+    <a href="https://twitter.com/robob_placeholder" target="_blank" class="social-btn">
+      <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      Twitter / X
+    </a>
+    <a href="https://tiktok.com/@robob_placeholder" target="_blank" class="social-btn">
+      <svg viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.78 1.52V6.76a4.85 4.85 0 01-1.01-.07z"/></svg>
+      TikTok
+    </a>
+    <a href="https://instagram.com/robob_placeholder" target="_blank" class="social-btn">
+      <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+      Instagram
+    </a>
+    <a href="https://youtube.com/@robob_placeholder" target="_blank" class="social-btn">
+      <svg viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+      YouTube
+    </a>
+    <a href="https://discord.gg/robob_placeholder" target="_blank" class="social-btn">
+      <svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.079.11 18.1.128 18.116a19.9 19.9 0 005.993 3.03.077.077 0 00.084-.028 13.986 13.986 0 001.226-1.994.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+      Discord
+    </a>
+  </div>
+</div>
+
+<!-- ─── FOOTER ────────────────────────────────────────────────────────────
+     Logo + liens rapides + copyright.
+──────────────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-logo">ROBOB</div>
+  <ul class="footer-links">
+    <li><a href="#build">Build</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://github.com/Arcan0va/SproutRob" target="_blank">GitHub</a></li>
+    <li><a href="#community">Discord</a></li>
+    <li><a href="contact.html">Contact</a></li>
+  </ul>
+  <div class="footer-copy">Open source · MIT License · Made with ❤️</div>
+</footer>
+
+<script>
+/* ─── INITIALISATION CANVAS ───────────────────────────────────────────────
+   Récupère le canvas HTML et son contexte 2D.
+   currentScreen : l'écran actuellement affiché ('clock', 'weather', 'boot').
+   animFrame     : compteur incrémenté à chaque frame, utilisé pour les animations.
+   OFF/ON/DIM    : les 3 couleurs OLED (noir, vert phosphore, vert atténué).
+────────────────────────────────────────────────────────────────────────── */
+const canvas = document.getElementById('oledCanvas');
+const ctx = canvas.getContext('2d');
+let currentScreen = 'clock';
+let animFrame = 0;
+const OFF = '#000000', ON = '#39ff8f', DIM = '#1a7a45';
+
+/* Efface l'écran en remplissant tout en noir */
+function clearOled() { ctx.fillStyle = OFF; ctx.fillRect(0, 0, 256, 128); }
+
+/* Helper pour dessiner un rectangle plein ou vide (coordonnées en "pixels OLED" × 2) */
+function rect(x, y, w, h, c = ON, fill = false) {
+  if (fill) { ctx.fillStyle = c; ctx.fillRect(x*2, y*2, w*2, h*2); }
+  else { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.strokeRect(x*2, y*2, w*2, h*2); }
+}
+
+/* ─── ÉCRAN HORLOGE ───────────────────────────────────────────────────────
+   Affiche l'heure en grand (HH:MM) avec les secondes en plus petit.
+   Le colon ":" clignote toutes les 30 frames grâce à animFrame.
+   Une barre de progression en bas suit les secondes écoulées.
+────────────────────────────────────────────────────────────────────────── */
+function drawClock() {
+  clearOled();
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  const d = now.toLocaleDateString('en-GB', { weekday:'short', day:'2-digit', month:'short' });
+  ctx.fillStyle = ON; ctx.font = 'bold 42px VT323, monospace';
+  const colon = animFrame % 60 < 30 ? ':' : ' ';
+  ctx.fillText(`${h}${colon}${m}`, 18, 60);
+  ctx.fillStyle = DIM; ctx.font = 'bold 18px VT323, monospace';
+  ctx.fillText(`:${s}`, 174, 60);
+  ctx.fillStyle = DIM; ctx.font = '10px Space Mono, monospace';
+  ctx.fillText(d.toUpperCase(), 36, 80);
+  const prog = now.getSeconds() / 60;
+  rect(10, 88, 108, 4, DIM); rect(10, 88, Math.floor(108 * prog), 4, ON, true);
+}
+
+/* ─── ÉCRAN MÉTÉO ─────────────────────────────────────────────────────────
+   Affiche une icône soleil dessinée manuellement (cercle + rayons),
+   la température, la ville, et les stats humidité/vent.
+   Les données sont statiques (placeholder) — à remplacer par l'API réelle.
+────────────────────────────────────────────────────────────────────────── */
+function drawWeather() {
+  clearOled();
+  const cx = 24, cy = 36;
+  const rays = [[0,-10],[7,-7],[10,0],[7,7],[0,10],[-7,7],[-10,0],[-7,-7]];
+  ctx.strokeStyle = ON; ctx.lineWidth = 2;
+  rays.forEach(([dx, dy]) => { ctx.beginPath(); ctx.moveTo((cx+dx*0.6)*2,(cy+dy*0.6)*2); ctx.lineTo((cx+dx)*2,(cy+dy)*2); ctx.stroke(); });
+  ctx.beginPath(); ctx.arc(cx*2, cy*2, 8*2, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = ON; ctx.font = 'bold 36px VT323, monospace'; ctx.fillText('18°C', 80, 50);
+  ctx.fillStyle = DIM; ctx.font = '9px Space Mono, monospace'; ctx.fillText('PARIS, FR', 82, 64);
+  ctx.strokeStyle = DIM; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10*2,75*2); ctx.lineTo(118*2,75*2); ctx.stroke();
+  ctx.fillStyle = DIM; ctx.font = '9px Space Mono, monospace';
+  ctx.fillText('HUM 62%', 10*2, 88*2); ctx.fillText('WIND 12km/h', 62*2, 88*2);
+  ctx.fillStyle = DIM; ctx.font = '8px Space Mono, monospace'; ctx.fillText('SUNNY', 10*2, 100*2);
+}
+
+/* ─── ÉCRAN BOOT ──────────────────────────────────────────────────────────
+   Charge et affiche l'image PNG du boot screen hébergée sur GitHub.
+   crossOrigin = 'anonymous' est nécessaire pour éviter les erreurs CORS.
+   Si l'image n'est pas encore chargée, affiche un texte de fallback.
+────────────────────────────────────────────────────────────────────────── */
+const bootImg = new Image();
+bootImg.crossOrigin = 'anonymous';
+bootImg.src = 'https://raw.githubusercontent.com/Arcan0va/SproutRob/main/boot_screen.png';
+
+function drawBoot() {
+  clearOled();
+  if (bootImg.complete && bootImg.naturalWidth > 0) {
+    ctx.drawImage(bootImg, 0, 0, 256, 128);
+    return;
+  }
+  // Fallback texte pendant le chargement
+  ctx.fillStyle = ON;
+  ctx.font = 'bold 16px VT323, monospace';
+  ctx.fillText('Booting !', 80, 60);
+}
+
+/* ─── BOUCLE DE RENDU ─────────────────────────────────────────────────────
+   requestAnimationFrame = ~60fps. À chaque frame :
+   - on incrémente animFrame (utilisé pour les animations comme le clignotement)
+   - on appelle la fonction de dessin correspondant à l'écran actif
+────────────────────────────────────────────────────────────────────────── */
+function render() { animFrame++; if(currentScreen==='clock') drawClock(); if(currentScreen==='weather') drawWeather(); if(currentScreen==='boot') drawBoot(); requestAnimationFrame(render); }
+render();
+
+/* ─── CHANGEMENT D'ÉCRAN MANUEL ──────────────────────────────────────────
+   Met à jour currentScreen et active visuellement le bon tab.
+────────────────────────────────────────────────────────────────────────── */
+function setScreen(name) { currentScreen = name; document.querySelectorAll('.screen-tab').forEach(t => { t.classList.toggle('active', t.textContent.toLowerCase() === name); }); }
+
+/* ─── ROTATION AUTOMATIQUE DES ÉCRANS ────────────────────────────────────
+   Toutes les 4 secondes, passe automatiquement à l'écran suivant.
+────────────────────────────────────────────────────────────────────────── */
+let autoIdx = 0;
+const screens = ['clock','weather','boot'];
+setInterval(() => { autoIdx = (autoIdx+1)%screens.length; setScreen(screens[autoIdx]); }, 4000);
+
+/* ─── ACCORDION FAQ ───────────────────────────────────────────────────────
+   Ferme tous les items ouverts, puis ouvre celui cliqué (sauf s'il était déjà ouvert).
+   L'animation visuelle est gérée en CSS avec max-height.
+────────────────────────────────────────────────────────────────────────── */
+function toggleFaq(el) { const item = el.parentElement; const isOpen = item.classList.contains('open'); document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open')); if(!isOpen) item.classList.add('open'); }
+
+/* ─── SCROLL REVEAL ───────────────────────────────────────────────────────
+   IntersectionObserver : surveille quand les cartes entrent dans le viewport.
+   Quand un élément devient visible, on lui retire l'opacité 0 et la translation,
+   ce qui déclenche la transition CSS (fadeUp) définie inline.
+────────────────────────────────────────────────────────────────────────── */
+const observer = new IntersectionObserver((entries) => { entries.forEach(e => { if(e.isIntersecting) { e.target.style.opacity='1'; e.target.style.transform='translateY(0)'; } }); }, { threshold: 0.1 });
+document.querySelectorAll('.build-card, .dl-card, .community-card, .changelog-item, .faq-item, .social-btn').forEach(el => { el.style.opacity='0'; el.style.transform='translateY(24px)'; el.style.transition='opacity .5s ease, transform .5s ease'; observer.observe(el); });
+</script>
+</body>
+</html>
